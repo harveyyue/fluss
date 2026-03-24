@@ -39,6 +39,7 @@ import org.apache.fluss.server.metadata.ServerMetadataCache;
 import org.apache.fluss.server.metrics.ServerMetricUtils;
 import org.apache.fluss.server.metrics.group.CoordinatorMetricGroup;
 import org.apache.fluss.server.metrics.group.LakeTieringMetricGroup;
+import org.apache.fluss.server.metrics.group.SliceMetricGroup;
 import org.apache.fluss.server.zk.ZooKeeperClient;
 import org.apache.fluss.server.zk.ZooKeeperUtils;
 import org.apache.fluss.server.zk.data.CoordinatorAddress;
@@ -132,6 +133,9 @@ public class CoordinatorServer extends ServerBase {
     private LakeTableTieringManager lakeTableTieringManager;
 
     @GuardedBy("lock")
+    private SliceTableManager sliceTableManager;
+
+    @GuardedBy("lock")
     private ExecutorService ioExecutor;
 
     @GuardedBy("lock")
@@ -206,6 +210,9 @@ public class CoordinatorServer extends ServerBase {
                     new LakeTableTieringManager(
                             new LakeTieringMetricGroup(metricRegistry, serverMetricGroup));
 
+            this.sliceTableManager =
+                    new SliceTableManager(new SliceMetricGroup(metricRegistry, serverMetricGroup));
+
             MetadataManager metadataManager =
                     new MetadataManager(zkClient, conf, lakeCatalogDynamicLoader);
             this.ioExecutor =
@@ -276,6 +283,7 @@ public class CoordinatorServer extends ServerBase {
                             coordinatorContext,
                             autoPartitionManager,
                             lakeTableTieringManager,
+                            sliceTableManager,
                             serverMetricGroup,
                             conf,
                             ioExecutor,

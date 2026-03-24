@@ -19,15 +19,18 @@ package org.apache.fluss.server.coordinator.rebalance;
 
 import org.apache.fluss.cluster.rebalance.RebalanceStatus;
 import org.apache.fluss.config.Configuration;
+import org.apache.fluss.metrics.registry.NOPMetricRegistry;
 import org.apache.fluss.server.coordinator.AutoPartitionManager;
 import org.apache.fluss.server.coordinator.CoordinatorContext;
 import org.apache.fluss.server.coordinator.CoordinatorEventProcessor;
 import org.apache.fluss.server.coordinator.LakeCatalogDynamicLoader;
 import org.apache.fluss.server.coordinator.LakeTableTieringManager;
 import org.apache.fluss.server.coordinator.MetadataManager;
+import org.apache.fluss.server.coordinator.SliceTableManager;
 import org.apache.fluss.server.coordinator.TestCoordinatorChannelManager;
 import org.apache.fluss.server.coordinator.lease.KvSnapshotLeaseManager;
 import org.apache.fluss.server.metadata.CoordinatorMetadataCache;
+import org.apache.fluss.server.metrics.group.SliceMetricGroup;
 import org.apache.fluss.server.metrics.group.TestingMetricGroups;
 import org.apache.fluss.server.zk.NOPErrorHandler;
 import org.apache.fluss.server.zk.ZooKeeperClient;
@@ -139,6 +142,10 @@ public class RebalanceManagerTest {
                 new CoordinatorContext(),
                 autoPartitionManager,
                 lakeTableTieringManager,
+                new SliceTableManager(
+                        new SliceMetricGroup(
+                                NOPMetricRegistry.INSTANCE,
+                                TestingMetricGroups.COORDINATOR_METRICS)),
                 TestingMetricGroups.COORDINATOR_METRICS,
                 new Configuration(),
                 Executors.newFixedThreadPool(1, new ExecutorThreadFactory("test-coordinator-io")),

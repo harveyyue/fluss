@@ -115,6 +115,29 @@ public class TableConfig {
         return config.get(ConfigOptions.TABLE_DATALAKE_AUTO_EXPIRE_SNAPSHOT);
     }
 
+    /** Whether slice table is enabled for the table. */
+    public boolean isSliceEnabled() {
+        return config.get(ConfigOptions.TABLE_SLICE_ENABLED);
+    }
+
+    /**
+     * Gets the interval between successive snapshots when slice table is enabled.
+     *
+     * @return the slice interval
+     */
+    public Duration getSliceInterval() {
+        return config.get(ConfigOptions.TABLE_SLICE_INTERVAL);
+    }
+
+    /**
+     * Gets the suffix for the auto-generated target append table name.
+     *
+     * @return the target table name suffix
+     */
+    public String getSliceTargetTableSuffix() {
+        return config.get(ConfigOptions.TABLE_SLICE_TARGET_TABLE_SUFFIX);
+    }
+
     /** Gets the optional merge engine type of the table. */
     public Optional<MergeEngineType> getMergeEngineType() {
         return config.getOptional(ConfigOptions.TABLE_MERGE_ENGINE);

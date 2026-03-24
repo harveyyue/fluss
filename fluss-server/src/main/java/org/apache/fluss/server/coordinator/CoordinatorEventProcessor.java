@@ -41,9 +41,11 @@ import org.apache.fluss.exception.TabletServerNotAvailableException;
 import org.apache.fluss.exception.UnknownServerException;
 import org.apache.fluss.exception.UnknownTableOrBucketException;
 import org.apache.fluss.metadata.PhysicalTablePath;
+import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.SchemaInfo;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TableBucketReplica;
+import org.apache.fluss.metadata.TableDescriptor;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePartition;
 import org.apache.fluss.metadata.TablePath;
@@ -118,6 +120,7 @@ import org.apache.fluss.server.zk.data.ZkData.PartitionIdsZNode;
 import org.apache.fluss.server.zk.data.ZkData.TableIdsZNode;
 import org.apache.fluss.server.zk.data.lake.LakeTableHelper;
 import org.apache.fluss.server.zk.data.lake.LakeTableSnapshot;
+import org.apache.fluss.types.DataTypes;
 import org.apache.fluss.utils.types.Tuple2;
 
 import org.slf4j.Logger;
@@ -170,6 +173,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
     private final TableManager tableManager;
     private final AutoPartitionManager autoPartitionManager;
     private final LakeTableTieringManager lakeTableTieringManager;
+    private final SliceTableManager sliceTableManager;
     private final TableChangeWatcher tableChangeWatcher;
     private final CoordinatorChannelManager coordinatorChannelManager;
     private final TabletServerChangeWatcher tabletServerChangeWatcher;
@@ -188,6 +192,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
             CoordinatorContext coordinatorContext,
             AutoPartitionManager autoPartitionManager,
             LakeTableTieringManager lakeTableTieringManager,
+            SliceTableManager sliceTableManager,
             CoordinatorMetricGroup coordinatorMetricGroup,
             Configuration conf,
             ExecutorService ioExecutor,
@@ -198,6 +203,7 @@ public class CoordinatorEventProcessor implements EventProcessor {
         this.coordinatorChannelManager = coordinatorChannelManager;
         this.coordinatorContext = coordinatorContext;
         this.coordinatorEventManager = new CoordinatorEventManager(this, coordinatorMetricGroup);
+        this.sliceTableManager = sliceTableManager;
         this.replicaStateMachine =
                 new ReplicaStateMachine(
                         coordinatorContext,
@@ -434,6 +440,12 @@ public class CoordinatorEventProcessor implements EventProcessor {
         autoPartitionManager.initAutoPartitionTables(autoPartitionTables);
         lakeTableTieringManager.initWithLakeTables(lakeTables);
 
+        // TODO: Initialize snapshot derive tables
+        // For now, snapshot derive tables will be initialized on-demand when a table
+        // with snapshot derive enabled is created or when the feature is enabled via ALTER TABLE.
+        // In the future, we should load all snapshot derive table pairs from ZooKeeper/metadata
+        // and initialize the SliceTableManager here.
+
         // load all assignment
         long start4loadAssignment = System.currentTimeMillis();
         loadTableAssignment();
@@ -661,6 +673,31 @@ public class CoordinatorEventProcessor implements EventProcessor {
             lakeTableTieringManager.addNewLakeTable(tableInfo);
         }
 
+        // Handle slice table feature
+        if (tableInfo.getTableConfig().isSliceEnabled()) {
+            if (!tableInfo.hasPrimaryKey()) {
+                LOG.warn(
+                        "Slice table is enabled for non-primary-key table {}. "
+                                + "Slice table is only supported for primary key tables. "
+                                + "Skipping slice table configuration.",
+                        tablePath);
+            } else {
+                try {
+                    TableInfo derivedTableInfo = createDerivedTableForSnapshotDerive(tableInfo);
+                    sliceTableManager.addNewSliceTable(tableInfo, derivedTableInfo);
+                    LOG.info(
+                            "Slice table enabled for table {}. Derived table: {}",
+                            tablePath,
+                            derivedTableInfo.getTablePath());
+                } catch (Exception e) {
+                    LOG.error(
+                            "Failed to create derived table for slice table on table {}",
+                            tablePath,
+                            e);
+                }
+            }
+        }
+
         if (!tableInfo.isPartitioned()) {
             Set<TableBucket> tableBuckets = new HashSet<>();
             tableAssignment
@@ -782,6 +819,54 @@ public class CoordinatorEventProcessor implements EventProcessor {
                         newTableInfo.getTableId(), newFreshness.toMillis());
             }
         }
+
+        // Handle slice table feature
+        boolean sliceEnabled = newTableInfo.getTableConfig().isSliceEnabled();
+        boolean toEnableSlice =
+                !oldTableInfo.getTableConfig().isSliceEnabled()
+                        && newTableInfo.getTableConfig().isSliceEnabled();
+        boolean toDisableSlice =
+                oldTableInfo.getTableConfig().isSliceEnabled()
+                        && !newTableInfo.getTableConfig().isSliceEnabled();
+
+        if (toEnableSlice) {
+            if (!newTableInfo.hasPrimaryKey()) {
+                LOG.warn(
+                        "Cannot enable slice table for non-primary-key table {}. "
+                                + "Slice table is only supported for primary key tables.",
+                        newTableInfo.getTablePath());
+            } else {
+                try {
+                    TableInfo derivedTableInfo = createDerivedTableForSnapshotDerive(newTableInfo);
+                    sliceTableManager.addNewSliceTable(newTableInfo, derivedTableInfo);
+                    LOG.info(
+                            "Slice table enabled for table {} via ALTER TABLE. Derived table: {}",
+                            newTableInfo.getTablePath(),
+                            derivedTableInfo.getTablePath());
+                } catch (Exception e) {
+                    LOG.error(
+                            "Failed to create derived table for slice table on table {}",
+                            newTableInfo.getTablePath(),
+                            e);
+                }
+            }
+        } else if (toDisableSlice) {
+            sliceTableManager.removeSliceTable(newTableInfo.getTableId());
+        } else if (sliceEnabled) {
+            // The table still has slice enabled, check if interval has changed
+            Duration oldInterval = oldTableInfo.getTableConfig().getSliceInterval();
+            Duration newInterval = newTableInfo.getTableConfig().getSliceInterval();
+
+            if (!Objects.equals(oldInterval, newInterval)) {
+                sliceTableManager.updateTableSnapshotInterval(
+                        newTableInfo.getTableId(), newInterval.toMillis());
+                LOG.info(
+                        "Updated slice interval for table {} from {} to {}.",
+                        newTableInfo.getTablePath(),
+                        oldInterval,
+                        newInterval);
+            }
+        }
         // more post-alter actions can be added here
     }
 
@@ -843,6 +928,9 @@ public class CoordinatorEventProcessor implements EventProcessor {
         }
         if (dropTableEvent.isDataLakeEnabled()) {
             lakeTableTieringManager.removeLakeTable(tableId);
+        }
+        if (dropTableInfo.getTableConfig().isSliceEnabled()) {
+            sliceTableManager.removeSliceTable(tableId);
         }
 
         // send update metadata request.
@@ -2246,5 +2334,68 @@ public class CoordinatorEventProcessor implements EventProcessor {
         public int hashCode() {
             return Objects.hash(replicas, addingReplicas, removingReplicas);
         }
+    }
+
+    /**
+     * Creates a derived append table for snapshot derive feature.
+     *
+     * <p>The derived table will have the same schema as the source table with additional columns:
+     *
+     * <ul>
+     *   <li>__snapshot_id: unique identifier for this snapshot
+     *   <li>__snapshot_time: timestamp when the snapshot was taken
+     * </ul>
+     */
+    private TableInfo createDerivedTableForSnapshotDerive(TableInfo sourceTableInfo)
+            throws Exception {
+        TablePath sourcePath = sourceTableInfo.getTablePath();
+        String suffix = sourceTableInfo.getTableConfig().getSliceTargetTableSuffix();
+        TablePath derivedPath =
+                new TablePath(sourcePath.getDatabaseName(), sourcePath.getTableName() + suffix);
+
+        // Build the derived table schema with additional snapshot columns
+        Schema sourceSchema = sourceTableInfo.getSchemaInfo().getSchema();
+        List<Schema.Column> derivedColumns = new ArrayList<>(sourceSchema.getColumns());
+
+        // Add snapshot metadata columns (using Column constructor directly)
+        derivedColumns.add(
+                new Schema.Column(
+                        "__snapshot_id",
+                        DataTypes.BIGINT(),
+                        null,
+                        Schema.Column.UNKNOWN_COLUMN_ID,
+                        null));
+        derivedColumns.add(
+                new Schema.Column(
+                        "__snapshot_time",
+                        DataTypes.TIMESTAMP(3),
+                        null,
+                        Schema.Column.UNKNOWN_COLUMN_ID,
+                        null));
+
+        Schema derivedSchema = Schema.newBuilder().fromColumns(derivedColumns).build();
+
+        TableDescriptor derivedDescriptor =
+                TableDescriptor.builder()
+                        .schema(derivedSchema)
+                        .property(
+                                ConfigOptions.TABLE_LOG_FORMAT,
+                                sourceTableInfo.getTableConfig().getLogFormat())
+                        .property(
+                                ConfigOptions.TABLE_REPLICATION_FACTOR,
+                                sourceTableInfo.getTableConfig().getReplicationFactor())
+                        .build();
+
+        // Create the derived table through metadata manager
+        metadataManager.createTable(derivedPath, derivedDescriptor, null, false);
+
+        TableInfo derivedTableInfo = metadataManager.getTable(derivedPath);
+
+        LOG.info(
+                "Created derived table {} for snapshot derive from source table {}",
+                derivedPath,
+                sourcePath);
+
+        return derivedTableInfo;
     }
 }

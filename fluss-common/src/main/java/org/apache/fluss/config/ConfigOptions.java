@@ -1521,6 +1521,36 @@ public class ConfigOptions {
                     .withDescription(
                             "If true, snapshot expiration will be triggered automatically when tiering service commits to the datalake. It is disabled by default.");
 
+    // ------------------------------------------------------------------------
+    //  ConfigOptions for Slice Table
+    // ------------------------------------------------------------------------
+
+    public static final ConfigOption<Boolean> TABLE_SLICE_ENABLED =
+            key("table.slice.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription(
+                            "If true, enables the slice table feature for the primary key table. "
+                                    + "This will automatically create a derived append table that periodically "
+                                    + "snapshots the full state of the source primary key table.");
+
+    public static final ConfigOption<Duration> TABLE_SLICE_INTERVAL =
+            key("table.slice.interval")
+                    .durationType()
+                    .defaultValue(Duration.ofMinutes(5))
+                    .withDescription(
+                            "The interval between successive snapshots when table.slice.enabled is true. "
+                                    + "Every interval, a full snapshot of the primary key table's current state "
+                                    + "will be written to the derived append table.");
+
+    public static final ConfigOption<String> TABLE_SLICE_TARGET_TABLE_SUFFIX =
+            key("table.slice.target-table-suffix")
+                    .stringType()
+                    .defaultValue("_slice")
+                    .withDescription(
+                            "The suffix for the auto-generated target append table name. "
+                                    + "The target table name will be: <source_table_name><suffix>.");
+
     public static final ConfigOption<MergeEngineType> TABLE_MERGE_ENGINE =
             key("table.merge-engine")
                     .enumType(MergeEngineType.class)

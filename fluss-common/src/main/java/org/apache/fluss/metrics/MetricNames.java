@@ -70,6 +70,18 @@ public class MetricNames {
     public static final String LAKE_TIERING_TABLE_FILE_SIZE = "fileSize";
     public static final String LAKE_TIERING_TABLE_RECORD_COUNT = "recordCount";
 
+    // for snapshot derive metrics - global level
+    public static final String SNAPSHOT_DERIVE_PENDING_TABLES_COUNT =
+            "snapshotDerivePendingTablesCount";
+    public static final String SNAPSHOT_DERIVE_RUNNING_TABLES_COUNT =
+            "snapshotDeriveRunningTablesCount";
+
+    // for snapshot derive table-level metrics
+    public static final String SNAPSHOT_DERIVE_TABLE_SNAPSHOT_LAG = "snapshotLag";
+    public static final String SNAPSHOT_DERIVE_TABLE_SNAPSHOT_DURATION = "snapshotDuration";
+    public static final String SNAPSHOT_DERIVE_TABLE_FAILURES_TOTAL = "snapshotFailuresTotal";
+    public static final String SNAPSHOT_DERIVE_TABLE_RECORD_COUNT = "snapshotRecordCount";
+
     // --------------------------------------------------------------------------------------------
     // metrics for tablet server
     // --------------------------------------------------------------------------------------------
