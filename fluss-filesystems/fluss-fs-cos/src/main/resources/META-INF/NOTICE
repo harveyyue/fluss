@@ -1,0 +1,15 @@
+fluss-fs-cos
+Copyright 2025-2026 The Apache Software Foundation
+
+This project includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+This project bundles the following dependencies under the Apache Software License 2.0 (http://www.apache.org/licenses/LICENSE-2.0.txt)
+
+- com.tencentcloudapi:tencentcloud-sdk-java-sts:3.1.1239
+- com.qcloud:cos_api:5.6.155
+
+This project bundles the following dependencies under the CDDL 1.1 license.
+See bundled license files for details.
+
+- javax.xml.bind:jaxb-api:2.3.1
